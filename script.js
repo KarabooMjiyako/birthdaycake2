@@ -1,152 +1,61 @@
 document.addEventListener("DOMContentLoaded", function() {
-    // prompt user for first name
-    var user = prompt("Write your first name:");
-    if (user === null || user === ""){
+    let user = prompt("Write your first name:");
+    while (!user || user.trim().length < 2) {
         user = prompt("Please write your first name:");
-    } else if (user < 2){
-        user = prompt("Please write your first name:");
-    } else if (user !== null) {
-        document.title = "Happy Birthday " + user + "!";
-        document.querySelector("h1").textContent = "Happy Birthday " + user + "!";
     }
+    document.title = `Happy Birthday ${user}!`;
+    document.querySelector("h1").textContent = `Happy Birthday ${user}!`;
 
-    // constant variables
     const mic = document.getElementById("mic");
     const cursor = document.getElementById("cursor");
     const flame = document.getElementById("flame");
-    const cursorInstructions = document.getElementById("cursorInstructions");
-    const micInstructions = document.getElementById("micInstructions");
-    micInstructions.style.display = "none";
-    cursorInstructions.style.display = "none";
-    const instructionsContainer = document.querySelector(".instructions-container");
 
-    // blow detection variables
-    let audioContext;
-    let micStream;
-    let analyser;
-    let blowThreshold = 110;
+    if (!mic || !cursor || !flame) {
+        console.error("Required elements are missing.");
+        return;
+    }
+
+    const flameRect = flame.getBoundingClientRect();
     let flameOpacity = 1;
 
-    // function to start blow detection
-    function startBlowDetection() {
-        // initialize the microphone, accept or reject microphone access
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(function(stream) {
-                // Create audio context
-                audioContext = new AudioContext();
-                micStream = stream;
-                const microphone = audioContext.createMediaStreamSource(stream);
-
-                // initialize analyser mode
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
-                microphone.connect(analyser);
-
-                // execute listenForBlow() function
-                listenForBlow();
-            })
-            .catch(function(err) {
-                console.error('Error accessing microphone:', err);
-            });
-    }
-
-    // listen for blow function
-    function listenForBlow() {
-        const buffer = analyser.frequencyBinCount;
-        const data = new Uint8Array(buffer);
-
-        function detectBlow() {
-            analyser.getByteFrequencyData(data);
-
-            // calculate the average amplitude
-            let s = 0; // sum
-            for (let i = 0; i < buffer; i++) {
-                s += data[i];
-            }
-            const averageAmplitude = s / buffer;
-
-            // check if averageAmplitude is greater than blowThreshold
-            if (averageAmplitude > blowThreshold) {
-                // decrease flame opacity
-                flameOpacity -= 0.05; 
-                if (flameOpacity < 0) {
-                    flameOpacity = 0;
-                }
-                flame.style.opacity = flameOpacity;
-            }
-
-            // schedule next detection loop
-            requestAnimationFrame(detectBlow);
-        }
-
-        // detection loop
-        detectBlow();
-    }
-
-    // listen for the mic button when clicked, initialize the function to handle blow detection
     mic.addEventListener("click", function() {
-        micInstructions.style.display = "block";
-        cursorInstructions.style.display = "none";
-        instructionsContainer.style.display = "none";
-        startBlowDetection();
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioContext.createAnalyser();
+                const micSource = audioContext.createMediaStreamSource(stream);
+                micSource.connect(analyser);
+                analyser.fftSize = 256;
+                const data = new Uint8Array(analyser.frequencyBinCount);
+
+                function detectBlow() {
+                    analyser.getByteFrequencyData(data);
+                    const average = data.reduce((a, b) => a + b) / data.length;
+                    if (average > 110) {
+                        flameOpacity = Math.max(0, flameOpacity - 0.05);
+                        flame.style.opacity = flameOpacity;
+                    }
+                    requestAnimationFrame(detectBlow);
+                }
+
+                detectBlow();
+            })
+            .catch(err => console.error("Microphone access error:", err));
     });
 
-    // listen for the cursor button when clicked, initialize the function to handle cursor movement
     cursor.addEventListener("click", function() {
-        cursorInstructions.style.display = "block";
-        micInstructions.style.display = "none";
-        instructionsContainer.style.display = "none";
-    
-        // variables for cursor movement
-        let prevX = null;
-        let prevY = null; 
-        let prevTime = null;
-
-        const flameRadius = 500;
-
-        // track cursor movement
         document.addEventListener("mousemove", function(event) {
-            const x = event.clientX;
-            const y = event.clientY;
-
-            // check if the cursor is inside the flame radius
-            const inFlameRadius = (
-                x >= flame.offsetLeft - flameRadius &&
-                x <= flame.offsetLeft + flame.offsetWidth + flameRadius &&
-                y >= flame.offsetTop - flameRadius &&
-                y <= flame.offsetTop + flame.offsetHeight + flameRadius
+            const { clientX: x, clientY: y } = event;
+            const inRadius = (
+                x >= flameRect.left - 500 &&
+                x <= flameRect.right + 500 &&
+                y >= flameRect.top - 500 &&
+                y <= flameRect.bottom + 500
             );
-
-            console.log("inFlameRadius: " + inFlameRadius);
-
-            // check if the cursor is inside the flame radius
-            if (inFlameRadius) {
-                let speed = 0;
-                if (prevX !== null && prevY !== null && prevTime !== null) { 
-                    const time = performance.now() - prevTime;
-                    speed = Math.sqrt(Math.pow(x - prevX, 2) + Math.pow(y - prevY, 2)) / time;
-                }
-
-                // decrease flame opacity based on cursor speeds
-                flameOpacity -= speed * 0.01;
-                if (flameOpacity < 0) {
-                    flameOpacity = 0;
-                }
+            if (inRadius) {
+                flameOpacity = Math.max(0, flameOpacity - 0.01);
                 flame.style.opacity = flameOpacity;
             }
-
-            // update previous cursor position & time
-            prevX = x;
-            prevY = y;
-            prevTime = performance.now();
         });
-    });
-
-    // function to handle unload of the page and close the audio context
-    window.addEventListener("beforeunload", function() {
-        if (audioContext) {
-            audioContext.close();
-            micStream.getTracks().forEach(track => track.stop());
-        }
     });
 });
